@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+    <body>
+        <h1>My first webRTC application</h1>
+        <script src="/socket.io/socket.io.js"></script>
+        <video id='localVideo' autoplay></video>
+        <video id='remoteVideo' autoplay></video>
+    </body>
+    <script>
+        var localVideo = document.getElementById("localVideo");
+        var remoteVideo = document.getElementById("remoteVideo");
+        var localStream;
+        var remoteStream;
+        var rtcPeerConnection;
+        var callerNum;//To find which caller(caller 1 or 2)
+        //getting user media
+        const constraints = {'video': true, 'audio': true};
+        //Ice Servers for communication
+        var iceServers = {
+                            'iceServers': [
+                                              { 'url': 'stun:stun.services.mozilla.com' },
+                                              { 'url': 'stun:stun.l.google.com:19302' }
+                                           ]
+                        }
+        //function to get user media
+        navigator.mediaDevices.getUserMedia(constraints).then(function(stream)
+                {
+                    localStream = stream;
+                    localVideo.srcObject = stream;
+                    socket.emit('gotMedia');
+                    }).catch(function(err){
+                    console.log('Error');
+                            });
+        //Socket connection and stuff
+        var socket = io('/test1');
+        socket.on('callerNum',setNum);
+        function setNum(n)
+        {
+            if(typeof callerNum == 'undefined')
+            {
+                callerNum = n;
+                console.log('user '+n);
+            }
+            
+        }
+        
+        socket.on('connected',makeRTC); //when server sends the message as first RTCpeerConnection is established
+        function makeRTC()
+        {
+            if(callerNum == 1)
+            {
+                console.log(callerNum+" and "+typeof localStream);
+                //creating RTC object
+                rtcPeerConnection = new RTCPeerConnection(iceServers);
+                rtcPeerConnection.onicecandidate = onIceCandidate;
+                rtcPeerConnection.onaddstream = onAddStream;
+                console.log(typeof localStream);
+                rtcPeerConnection.addStream(localStream);
+                rtcPeerConnection.createOffer(setLocalAndOffer,function(e){console.log(e)});
+            }
+        }
+        socket.on('offer',funOffer);
+        function funOffer(event)
+        {
+            //alert("offer");
+           if(callerNum == 2)
+            {
+                //creates an RTCPeerConnection object
+                rtcPeerConnection = new RTCPeerConnection(iceServers);
+                //adds event listeners to the newly created object
+                rtcPeerConnection.onicecandidate = onIceCandidate;
+                rtcPeerConnection.onaddstream = onAddStream;
+                //adds the current local stream to the object
+                console.log(typeof localStream);
+                rtcPeerConnection.addStream(localStream);
+                //stores the offer as remote description
+                rtcPeerConnection.setRemoteDescription(new RTCSessionDescription(event));
+                //Prepares an Answer
+                rtcPeerConnection.createAnswer(setLocalAndAnswer, function(e){console.log(e)});
+            }
+        }
+        //when server emits answer  
+        socket.on('answer', function (event)
+        {
+        //stores it as remote description
+        rtcPeerConnection.setRemoteDescription(new RTCSessionDescription(event));
+        });
+        //when server emits candidate
+        socket.on('candidate', function (event) {
+        //creates a candidate object
+        var candidate = new RTCIceCandidate({
+        sdpMLineIndex: event.label,
+        candidate: event.candidate
+        });
+        //stores candidate
+        rtcPeerConnection.addIceCandidate(candidate);
+        });
+        function onAddStream(event) {
+        remoteVideo.srcObject = event.stream;
+        remoteStream = event.stream;
+        }
+        //sends a candidate message to server
+        function onIceCandidate(event) {
+        if (event.candidate) {
+        console.log('sending ice candidate');
+        socket.emit('candidate', {
+        type: 'candidate',
+        label: event.candidate.sdpMLineIndex,
+        id: event.candidate.sdpMid,
+        candidate: event.candidate.candidate
+        })
+        }
+        }
+        //stores offer and sends message to server
+        function setLocalAndOffer(sessionDescription) 
+        {
+            rtcPeerConnection.setLocalDescription(sessionDescription);
+            socket.emit('offer', {
+            type: 'offer',
+            sdp: sessionDescription,
+        });
+        }
+        //stores answer and sends message to server
+        function setLocalAndAnswer(sessionDescription)
+        {
+            rtcPeerConnection.setLocalDescription(sessionDescription);
+            socket.emit('answer', {
+            type: 'answer',
+            sdp: sessionDescription,
+        });
+        }
+
+         
+</script>
+</html>
